@@ -1,0 +1,65 @@
+# claw-site MCP - Test Prompts
+
+Use these prompts after adding `claw-site` to Claude Desktop.
+
+## Basic tests
+
+```
+Using claw-site, extract URLs from https://example.com.
+```
+
+```
+Using claw-site, extract URLs from example.com.
+```
+
+## Same-domain extraction
+
+```
+Using claw-site, extract URLs from https://quotes.toscrape.com with same_domain=true and limit=25.
+```
+
+```
+Using claw-site, extract URLs from https://books.toscrape.com with same_domain=true and limit=50.
+```
+
+## Sitemap-heavy sites
+
+```
+Using claw-site, extract URLs from https://www.python.org with same_domain=true and limit=100.
+```
+
+```
+Using claw-site, extract URLs from https://docs.python.org/3/ with same_domain=true and limit=100.
+```
+
+## Cross-domain links
+
+```
+Using claw-site, extract URLs from https://www.python.org with same_domain=false and limit=100.
+```
+
+## Limit checks
+
+```
+Using claw-site, extract only 10 URLs from https://books.toscrape.com.
+```
+
+```
+Using claw-site, extract URLs from https://quotes.toscrape.com with limit=5.
+```
+
+## Error checks
+
+```
+Using claw-site, extract URLs from not a real url ::: broken.
+```
+
+```
+Using claw-site, extract URLs from ftp://example.com.
+```
+
+## Quick smoke test
+
+```
+Using claw-site, extract URLs from https://quotes.toscrape.com with limit=25.
+```
