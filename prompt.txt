@@ -63,3 +63,13 @@ Using claw-site, extract URLs from ftp://example.com.
 ```
 Using claw-site, extract URLs from https://quotes.toscrape.com with limit=25.
 ```
+
+## Image OCR
+
+```
+Using claw-site, extract text from the image at C:\path\to\image.png.
+```
+
+```
+Using claw-site, extract text from the image URL https://example.com/image.png.
+```

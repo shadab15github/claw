@@ -1,8 +1,10 @@
 """claw-site MCP server.
 
-One tool: extract URLs from a site using this flow:
+Tools:
+- extract URLs from a site using this flow:
 robots.txt -> sitemap discovery -> sitemap parsing -> page fetch with httpx
 -> link extraction, falling back to crawl4ai when static content has no links.
+- extract text from images with Tesseract OCR.
 """
 
 from __future__ import annotations
@@ -20,6 +22,7 @@ from pydantic import Field  # noqa: E402
 
 import extract  # noqa: E402
 import fetcher  # noqa: E402
+import ocr  # noqa: E402
 import sitemap  # noqa: E402
 from errors import describe_fetch_error, normalize_url, tool_error  # noqa: E402
 
@@ -101,6 +104,27 @@ async def extract_urls(
     if not urls:
         return f"Render method used: {render_label}\nNo URLs found for {target}."
     return f"Render method used: {render_label}\n" + "\n".join(urls)
+
+
+@mcp.tool()
+async def extract_image_text(
+    image: Annotated[
+        str,
+        Field(description="Image file path, image URL, data URL, or base64-encoded image content."),
+    ],
+    lang: Annotated[
+        str,
+        Field(description="Tesseract language code, for example 'eng' or 'eng+hin'."),
+    ] = "eng",
+) -> str:
+    """Extract text from an image with Tesseract OCR.
+
+    The response is only the recognized text, with no labels or metadata.
+    """
+    try:
+        return await ocr.extract_image_text(image, lang=lang)
+    except Exception as err:
+        raise tool_error(str(err))
 
 
 def _same_hostname(left_url: str, right_url: str) -> bool:

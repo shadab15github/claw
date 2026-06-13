@@ -1,6 +1,6 @@
 # claw-site
 
-`claw-site` is a small Python MCP server with one tool: `extract_urls`.
+`claw-site` is a small Python MCP server with tools for extracting site URLs and extracting text from images.
 
 The tool follows this flow:
 
@@ -19,6 +19,11 @@ robots.txt
 ## Setup
 
 Requires Python 3.10+.
+
+The `extract_image_text` tool also requires the native Tesseract OCR executable:
+
+- Windows: install Tesseract OCR. The tool auto-detects the standard `C:\Program Files\Tesseract-OCR\tesseract.exe` install path; set `TESSERACT_CMD` if it is installed elsewhere.
+- macOS/Linux: install `tesseract` with your system package manager.
 
 ```bash
 cd claw-site
@@ -50,7 +55,7 @@ HTTP mode listens on `127.0.0.1:3002` by default.
 }
 ```
 
-## Tool
+## Tools
 
 ### `extract_urls`
 
@@ -60,4 +65,13 @@ Parameters:
 - `same_domain`: only return URLs on the input hostname. Default: `true`.
 - `limit`: maximum unique URLs to return. Default: `500`.
 
-The response is only newline-separated absolute URLs, or a short message when no URLs are found.
+The response is newline-separated absolute URLs, or a short message when no URLs are found.
+
+### `extract_image_text`
+
+Parameters:
+
+- `image`: image file path, image URL, data URL, or base64-encoded image content.
+- `lang`: Tesseract language code. Default: `eng`.
+
+The response is only the text recognized from the image.
