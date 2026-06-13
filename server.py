@@ -49,6 +49,10 @@ mcp = FastMCP(
 async def extract_urls(
     url: Annotated[str, Field(description="Page or site URL. Scheme-less input like `example.com` is allowed.")],
     same_domain: Annotated[bool, Field(description="Only return URLs on the input URL hostname.")] = True,
+    same_path: Annotated[
+        bool,
+        Field(description="Only return URLs under the input URL path prefix, such as /blogs and /blogs/..."),
+    ] = True,
     limit: Annotated[int, Field(description="Maximum number of unique URLs to return.", ge=1, le=5000)] = DEFAULT_LIMIT,
 ) -> str:
     """Extract unique absolute URLs from robots/sitemaps and the given page.
@@ -58,6 +62,7 @@ async def extract_urls(
     and falls back to crawl4ai browser rendering when static HTML has no links.
     """
     target = normalize_url(url)
+    route_scoped = same_path and _url_route_path(target) != "/"
     urls: list[str] = []
     seen: set[str] = set()
     render_methods: list[str] = []
@@ -66,20 +71,30 @@ async def extract_urls(
         if method not in render_methods:
             render_methods.append(method)
 
-    def add_many(values: list[str]) -> None:
+    def should_include(value: str) -> bool:
+        if same_domain and not _same_hostname(value, target):
+            return False
+        if same_path and not _same_path_prefix(value, target):
+            return False
+        return True
+
+    def add_many(values: list[str]) -> int:
+        added = 0
         for value in values:
             if len(urls) >= limit:
-                return
-            if same_domain and not _same_hostname(value, target):
+                return added
+            if not should_include(value):
                 continue
             if value in seen:
                 continue
             seen.add(value)
             urls.append(value)
+            added += 1
+        return added
 
     try:
         mark_render_method("httpx")
-        add_many(await sitemap.collect_sitemap_urls(target, limit=limit))
+        add_many(await sitemap.collect_sitemap_urls(target, limit=limit, url_filter=should_include))
     except Exception:
         pass
 
@@ -90,9 +105,9 @@ async def extract_urls(
         raise tool_error(describe_fetch_error(err, target))
 
     static_links = extract.extract_links(page.html, page.final_url, same_domain=same_domain)
-    add_many(static_links)
+    static_added = add_many(static_links)
 
-    if len(urls) < limit and not static_links:
+    if len(urls) < limit and (not static_links or static_added == 0 or route_scoped):
         try:
             mark_render_method("crawl4ai")
             rendered_page = await fetcher.fetch_browser(page.final_url)
@@ -131,6 +146,27 @@ def _same_hostname(left_url: str, right_url: str) -> bool:
     from urllib.parse import urlparse
 
     return (urlparse(left_url).hostname or "") == (urlparse(right_url).hostname or "")
+
+
+def _same_path_prefix(left_url: str, right_url: str) -> bool:
+    if not _same_hostname(left_url, right_url):
+        return False
+
+    left_path = _url_route_path(left_url)
+    right_path = _url_route_path(right_url)
+    if right_path == "/":
+        return True
+    return left_path == right_path or left_path.startswith(f"{right_path}/")
+
+
+def _url_route_path(url: str) -> str:
+    from urllib.parse import urlparse
+
+    return _normalize_route_path(urlparse(url).path)
+
+
+def _normalize_route_path(path: str) -> str:
+    return f"/{(path or '').strip('/')}"
 
 
 with contextlib.suppress(Exception):

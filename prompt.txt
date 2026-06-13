@@ -22,6 +22,12 @@ Using claw-site, extract URLs from https://quotes.toscrape.com with same_domain=
 Using claw-site, extract URLs from https://books.toscrape.com with same_domain=true and limit=50.
 ```
 
+## Same-route extraction
+
+```
+Using claw-site, extract URLs from https://example.com/blogs with limit=50.
+```
+
 ## Sitemap-heavy sites
 
 ```

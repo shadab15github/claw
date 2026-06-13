@@ -63,6 +63,7 @@ Parameters:
 
 - `url`: page or site URL.
 - `same_domain`: only return URLs on the input hostname. Default: `true`.
+- `same_path`: only return URLs under the input URL path prefix, for example `https://example.com/blogs` returns `/blogs` and `/blogs/...` URLs. Default: `true`.
 - `limit`: maximum unique URLs to return. Default: `500`.
 
 The response is newline-separated absolute URLs, or a short message when no URLs are found.

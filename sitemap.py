@@ -5,6 +5,7 @@ from __future__ import annotations
 import gzip
 import re
 import xml.etree.ElementTree as ET
+from collections.abc import Callable
 from urllib.parse import urljoin, urlparse
 
 import fetcher
@@ -36,7 +37,12 @@ async def discover_sitemaps(url: str) -> list[str]:
     return _unique(candidates)
 
 
-async def collect_sitemap_urls(start_url: str, *, limit: int) -> list[str]:
+async def collect_sitemap_urls(
+    start_url: str,
+    *,
+    limit: int,
+    url_filter: Callable[[str], bool] | None = None,
+) -> list[str]:
     pending = await discover_sitemaps(start_url)
     seen_sitemaps: set[str] = set()
     urls: list[str] = []
@@ -56,6 +62,8 @@ async def collect_sitemap_urls(start_url: str, *, limit: int) -> list[str]:
         child_sitemaps, page_urls = parse_sitemap(page.html, page.final_url)
         pending.extend(url for url in child_sitemaps if url not in seen_sitemaps)
         for page_url in page_urls:
+            if url_filter and not url_filter(page_url):
+                continue
             if page_url in seen_urls:
                 continue
             seen_urls.add(page_url)

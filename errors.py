@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from urllib.parse import urlparse, urlunparse
 
 import httpx
@@ -35,6 +36,8 @@ def normalize_url(raw: str) -> str:
     candidate = (raw or "").strip()
     if not candidate:
         raise ToolError('"" is not a valid URL.')
+    if re.match(r"^https?//", candidate, re.I):
+        candidate = candidate.replace("//", "://", 1)
 
     parsed = urlparse(candidate)
     if not parsed.scheme:
