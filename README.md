@@ -66,7 +66,7 @@ Parameters:
 - `same_path`: only return URLs under the input URL path prefix, for example `https://example.com/blogs` returns `/blogs` and `/blogs/...` URLs. Default: `true`.
 - `limit`: maximum unique URLs to return. Default: `500`.
 
-The response is newline-separated absolute URLs, or a short message when no URLs are found.
+The response includes URL stats by source, then a Markdown bullet list of absolute URLs with the source that found each URL, such as `robots.txt`, `sitemap.xml`, `httpx`, or `Crawl4AI`. If no URLs are found, the tool returns the stats and a short message.
 
 ### `extract_image_text`
 

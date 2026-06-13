@@ -63,7 +63,7 @@ async def extract_urls(
     """
     target = normalize_url(url)
     route_scoped = same_path and _url_route_path(target) != "/"
-    urls: list[str] = []
+    urls: list[tuple[str, str]] = []
     seen: set[str] = set()
     render_methods: list[str] = []
 
@@ -78,23 +78,22 @@ async def extract_urls(
             return False
         return True
 
-    def add_many(values: list[str]) -> int:
-        added = 0
-        for value in values:
-            if len(urls) >= limit:
-                return added
-            if not should_include(value):
-                continue
-            if value in seen:
-                continue
-            seen.add(value)
-            urls.append(value)
-            added += 1
-        return added
+    def add_url(value: str, source: str) -> bool:
+        if len(urls) >= limit or not should_include(value) or value in seen:
+            return False
+        seen.add(value)
+        urls.append((value, source))
+        return True
+
+    def add_many(values: list[str], source: str) -> int:
+        return sum(1 for value in values if add_url(value, source))
+
+    def add_sourced_many(values: list[tuple[str, str]]) -> int:
+        return sum(1 for value, source in values if add_url(value, source))
 
     try:
         mark_render_method("httpx")
-        add_many(await sitemap.collect_sitemap_urls(target, limit=limit, url_filter=should_include))
+        add_sourced_many(await sitemap.collect_sitemap_urls(target, limit=limit, url_filter=should_include))
     except Exception:
         pass
 
@@ -105,20 +104,26 @@ async def extract_urls(
         raise tool_error(describe_fetch_error(err, target))
 
     static_links = extract.extract_links(page.html, page.final_url, same_domain=same_domain)
-    static_added = add_many(static_links)
+    static_added = add_many(static_links, "httpx")
 
     if len(urls) < limit and (not static_links or static_added == 0 or route_scoped):
         try:
             mark_render_method("crawl4ai")
             rendered_page = await fetcher.fetch_browser(page.final_url)
-            add_many(extract.extract_links(rendered_page.html, rendered_page.final_url, same_domain=same_domain))
+            add_many(extract.extract_links(rendered_page.html, rendered_page.final_url, same_domain=same_domain), "Crawl4AI")
         except Exception as err:
             raise tool_error(describe_fetch_error(err, page.final_url))
 
     render_label = " + ".join(render_methods) or "none"
+    stats_label = _format_url_stats(urls)
     if not urls:
-        return f"Render method used: {render_label}\nNo URLs found for {target}."
-    return f"Render method used: {render_label}\n" + "\n".join(urls)
+        return f"Render method used: {render_label}\n{stats_label}\nNo URLs found for {target}."
+    return (
+        f"Render method used: {render_label}\n"
+        f"{stats_label}\n"
+        "URLs:\n"
+        + "\n".join(_format_sourced_url(value, source) for value, source in urls)
+    )
 
 
 @mcp.tool()
@@ -167,6 +172,29 @@ def _url_route_path(url: str) -> str:
 
 def _normalize_route_path(path: str) -> str:
     return f"/{(path or '').strip('/')}"
+
+
+def _format_url_stats(urls: list[tuple[str, str]]) -> str:
+    sources = ("robots.txt", "sitemap.xml", "httpx", "Crawl4AI")
+    counts = {source: 0 for source in sources}
+    for _url, source in urls:
+        counts[source] = counts.get(source, 0) + 1
+
+    lines = ["URL Stats:", f"- Total URLs: {len(urls)}"]
+    lines.extend(f"- {source}: {counts[source]}" for source in sources)
+    extra_sources = sorted(source for source in counts if source not in sources)
+    lines.extend(f"- {source}: {counts[source]}" for source in extra_sources)
+    return "\n".join(lines)
+
+
+def _format_sourced_url(url: str, source: str) -> str:
+    return f"- [{url}]({_markdown_link_target(url)}) ({source})"
+
+
+def _markdown_link_target(url: str) -> str:
+    from urllib.parse import quote
+
+    return quote(url, safe=":/?#[]@!$&'()*+,;=%")
 
 
 with contextlib.suppress(Exception):

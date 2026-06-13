@@ -12,6 +12,7 @@ import fetcher
 from extract import normalize_discovered_url
 
 SITEMAP_RE = re.compile(r"^\s*sitemap\s*:\s*(?P<url>\S+)\s*$", re.I | re.M)
+SourcedUrl = tuple[str, str]
 
 
 def site_root(url: str) -> str:
@@ -19,9 +20,9 @@ def site_root(url: str) -> str:
     return f"{parsed.scheme}://{parsed.netloc}/"
 
 
-async def discover_sitemaps(url: str) -> list[str]:
+async def discover_sitemaps(url: str) -> list[SourcedUrl]:
     root = site_root(url)
-    candidates: list[str] = []
+    candidates: list[SourcedUrl] = []
 
     robots_url = urljoin(root, "robots.txt")
     try:
@@ -29,12 +30,12 @@ async def discover_sitemaps(url: str) -> list[str]:
         for match in SITEMAP_RE.finditer(robots.html):
             sitemap_url = normalize_discovered_url(match.group("url"), root)
             if sitemap_url:
-                candidates.append(sitemap_url)
+                candidates.append((sitemap_url, "robots.txt"))
     except Exception:
         pass
 
-    candidates.append(urljoin(root, "sitemap.xml"))
-    return _unique(candidates)
+    candidates.append((urljoin(root, "sitemap.xml"), "sitemap.xml"))
+    return _unique_sourced(candidates)
 
 
 async def collect_sitemap_urls(
@@ -42,14 +43,14 @@ async def collect_sitemap_urls(
     *,
     limit: int,
     url_filter: Callable[[str], bool] | None = None,
-) -> list[str]:
+) -> list[SourcedUrl]:
     pending = await discover_sitemaps(start_url)
     seen_sitemaps: set[str] = set()
-    urls: list[str] = []
+    urls: list[SourcedUrl] = []
     seen_urls: set[str] = set()
 
     while pending and len(urls) < limit:
-        sitemap_url = pending.pop(0)
+        sitemap_url, sitemap_source = pending.pop(0)
         if sitemap_url in seen_sitemaps:
             continue
         seen_sitemaps.add(sitemap_url)
@@ -60,14 +61,14 @@ async def collect_sitemap_urls(
             continue
 
         child_sitemaps, page_urls = parse_sitemap(page.html, page.final_url)
-        pending.extend(url for url in child_sitemaps if url not in seen_sitemaps)
+        pending.extend((url, sitemap_source) for url in child_sitemaps if url not in seen_sitemaps)
         for page_url in page_urls:
             if url_filter and not url_filter(page_url):
                 continue
             if page_url in seen_urls:
                 continue
             seen_urls.add(page_url)
-            urls.append(page_url)
+            urls.append((page_url, sitemap_source))
             if len(urls) >= limit:
                 break
 
@@ -124,4 +125,15 @@ def _unique(values: list[str]) -> list[str]:
             continue
         seen.add(value)
         unique_values.append(value)
+    return unique_values
+
+
+def _unique_sourced(values: list[SourcedUrl]) -> list[SourcedUrl]:
+    seen: set[str] = set()
+    unique_values: list[SourcedUrl] = []
+    for value, source in values:
+        if value in seen:
+            continue
+        seen.add(value)
+        unique_values.append((value, source))
     return unique_values
