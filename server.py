@@ -206,6 +206,11 @@ with contextlib.suppress(Exception):
         return JSONResponse({"status": "ok", "server": "claw-site"})
 
 
+# Top-level ASGI application for serverless/ASGI hosts (e.g. Vercel, uvicorn).
+# Vercel's Python runtime looks for a module-level `app`/`application`/`handler`.
+app = mcp.streamable_http_app()
+
+
 def main() -> None:
     import sys
 
