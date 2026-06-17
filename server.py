@@ -4,6 +4,8 @@ Tools:
 - extract URLs from a site using this flow:
 robots.txt -> sitemap discovery -> sitemap parsing -> page fetch with httpx
 -> link extraction, falling back to crawl4ai when static content has no links.
+- extract a page's readable content as Markdown (httpx -> HTML-to-Markdown,
+  falling back to crawl4ai's native Markdown for JS-rendered pages).
 - extract text from images with Tesseract OCR.
 """
 
@@ -134,6 +136,53 @@ async def extract_urls(
     )
 
 
+MIN_MARKDOWN_CHARS = int(os.environ.get("CLAW_SITE_MIN_MARKDOWN_CHARS", "200"))
+
+
+@mcp.tool()
+async def extract_content(
+    url: Annotated[str, Field(description="Page URL to extract. Scheme-less input like `example.com` is allowed.")],
+    include_title: Annotated[
+        bool,
+        Field(description="Prepend the page title as a top-level Markdown heading."),
+    ] = True,
+) -> str:
+    """Extract a page's readable content and return it as Markdown.
+
+    Fetches the page with httpx and converts the HTML to Markdown. When the
+    static HTML yields little content (e.g. a JS-rendered page), it falls back
+    to crawl4ai browser rendering and uses its native Markdown output.
+    """
+    target = normalize_url(url)
+
+    try:
+        page = await fetcher.fetch_static(target)
+    except Exception as err:
+        raise tool_error(describe_fetch_error(err, target))
+
+    markdown = extract.html_to_markdown(page.html, page.final_url)
+    title = extract.extract_title(page.html) if include_title else None
+
+    if len(markdown) < MIN_MARKDOWN_CHARS:
+        try:
+            rendered = await fetcher.fetch_browser(page.final_url)
+        except Exception:
+            rendered = None
+        if rendered is not None:
+            rendered_md = rendered.markdown or extract.html_to_markdown(rendered.html, rendered.final_url)
+            if len(rendered_md) > len(markdown):
+                markdown = rendered_md
+                if include_title:
+                    title = extract.extract_title(rendered.html) or title
+
+    if not markdown:
+        raise tool_error(f"No extractable content found for {target}.")
+
+    if include_title and title and not _starts_with_heading(markdown, title):
+        return f"# {title}\n\n{markdown}"
+    return markdown
+
+
 @mcp.tool()
 async def extract_image_text(
     image: Annotated[
@@ -180,6 +229,13 @@ def _url_route_path(url: str) -> str:
 
 def _normalize_route_path(path: str) -> str:
     return f"/{(path or '').strip('/')}"
+
+
+def _starts_with_heading(markdown: str, title: str) -> bool:
+    """True when the markdown already opens with `# <title>` (any heading level)."""
+    first_line = next((line for line in markdown.splitlines() if line.strip()), "")
+    stripped = first_line.lstrip("#").strip()
+    return first_line.startswith("#") and stripped.casefold() == title.strip().casefold()
 
 
 def _format_url_stats(urls: list[tuple[str, str]]) -> str:

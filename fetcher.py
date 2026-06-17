@@ -22,6 +22,7 @@ class FetchResult:
     html: str
     final_url: str
     status: int
+    markdown: str | None = None
 
 
 async def fetch_static(url: str, *, accept: str | None = None) -> FetchResult:
@@ -94,4 +95,20 @@ async def fetch_browser(url: str) -> FetchResult:
         html=result.html or "",
         final_url=getattr(result, "url", None) or url,
         status=getattr(result, "status_code", None) or 200,
+        markdown=_extract_markdown(getattr(result, "markdown", None)),
     )
+
+
+def _extract_markdown(markdown: Any) -> str | None:
+    """Normalize crawl4ai's markdown, which may be a string or a result object."""
+    if markdown is None:
+        return None
+    if isinstance(markdown, str):
+        return markdown.strip() or None
+    # MarkdownGenerationResult exposes raw_markdown / fit_markdown attributes.
+    for attr in ("fit_markdown", "raw_markdown"):
+        value = getattr(markdown, attr, None)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    text = str(markdown).strip()
+    return text or None

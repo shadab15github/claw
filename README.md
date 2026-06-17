@@ -68,6 +68,15 @@ Parameters:
 
 The response includes URL stats by source, then a Markdown bullet list of absolute URLs with the source that found each URL, such as `robots.txt`, `sitemap.xml`, `httpx`, or `Crawl4AI`. If no URLs are found, the tool returns the stats and a short message.
 
+### `extract_content`
+
+Parameters:
+
+- `url`: page URL to extract. Scheme-less input like `example.com` is allowed.
+- `include_title`: prepend the page title as a top-level Markdown heading. Default: `true`.
+
+Fetches the page with httpx and converts the readable HTML to Markdown (scripts, styles, and other non-content tags are stripped; relative links and images are resolved to absolute URLs). When the static HTML yields little content — for example a JavaScript-rendered page — it falls back to `crawl4ai` browser rendering and uses its native Markdown output. The response is the Markdown content.
+
 ### `extract_image_text`
 
 Parameters:
