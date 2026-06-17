@@ -1,17 +1,23 @@
 """
-OpenWebUI native tool for claw-site MCP server (server.py).
-Paste the entire contents of this file into OpenWebUI → Tools → Create Tool.
-Make sure server.py is running in HTTP mode:  python server.py --http  (port 3002)
+OpenWebUI native tool for the claw-site MCP server in server.py.
+
+Paste the entire contents of this file into OpenWebUI -> Tools -> Create Tool.
+Make sure server.py is running in HTTP mode:
+
+    python server.py --http
+
+The server listens on http://localhost:3002/mcp by default.
 """
 
 import json
+from typing import Awaitable, Callable, Optional
+
 import requests
-from typing import Optional, Callable, Awaitable, Any
 
 MCP_SERVER_URL = "http://localhost:3002/mcp"
 MCP_PROTOCOL_VERSION = "2024-11-05"
 
-# Type alias for the OpenWebUI event emitter injected at call time
+# Type alias for the OpenWebUI event emitter injected at call time.
 EventEmitter = Optional[Callable[[dict], Awaitable[None]]]
 
 
@@ -24,7 +30,7 @@ class Tools:
         self._url = MCP_SERVER_URL
         self._session_id: Optional[str] = None
         self._req_id = 0
-        _log("init", f"Tool initialised, server={self._url}")
+        _log("init", f"Tool initialized, server={self._url}")
 
     # ------------------------------------------------------------------ #
     # Internal helpers                                                     #
@@ -35,13 +41,13 @@ class Tools:
         return self._req_id
 
     def _headers(self) -> dict:
-        h = {
+        headers = {
             "Content-Type": "application/json",
             "Accept": "application/json, text/event-stream",
         }
         if self._session_id:
-            h["mcp-session-id"] = self._session_id
-        return h
+            headers["mcp-session-id"] = self._session_id
+        return headers
 
     def _init_session(self) -> None:
         _log("init_session", "Sending initialize request...")
@@ -53,7 +59,7 @@ class Tools:
                 "params": {
                     "protocolVersion": MCP_PROTOCOL_VERSION,
                     "capabilities": {},
-                    "clientInfo": {"name": "openwebui-claw-tool", "version": "1.0.0"},
+                    "clientInfo": {"name": "openwebui-claw-tool", "version": "1.1.0"},
                 },
                 "id": self._next_id(),
             },
@@ -85,15 +91,16 @@ class Tools:
             stream=True,
         )
         _log("init_session", f"notifications/initialized status={notify.status_code}")
+        notify.raise_for_status()
         for _ in notify.iter_lines():
             pass
         _log("init_session", "Session ready.")
 
     def _parse(self, resp: requests.Response) -> str:
-        ct = resp.headers.get("Content-Type", "")
-        _log("parse", f"content-type={ct}")
+        content_type = resp.headers.get("Content-Type", "")
+        _log("parse", f"content-type={content_type}")
 
-        if "text/event-stream" in ct:
+        if "text/event-stream" in content_type:
             _log("parse", "Reading SSE stream line by line...")
             for raw in resp.iter_lines():
                 if not raw:
@@ -103,42 +110,46 @@ class Tools:
                 if line.startswith("data: "):
                     try:
                         data = json.loads(line[6:])
-                        if "result" in data:
-                            parts = data["result"].get("content", [])
-                            text = "\n".join(
-                                p["text"] for p in parts if p.get("type") == "text"
-                            )
-                            _log("parse", f"result text: {text[:80]}")
-                            return text
-                        if "error" in data:
-                            msg = data["error"].get("message", "unknown")
-                            _log("parse", f"error from server: {msg}")
-                            return f"Error: {msg}"
-                    except json.JSONDecodeError as e:
-                        _log("parse", f"JSON decode error: {e}")
+                    except json.JSONDecodeError as err:
+                        _log("parse", f"JSON decode error: {err}")
+                        continue
+
+                    if "result" in data:
+                        parts = data["result"].get("content", [])
+                        text = "\n".join(
+                            part["text"]
+                            for part in parts
+                            if part.get("type") == "text"
+                        )
+                        _log("parse", f"result text: {text[:80]}")
+                        return text
+                    if "error" in data:
+                        msg = data["error"].get("message", "unknown")
+                        _log("parse", f"error from server: {msg}")
+                        return f"Error: {msg}"
             return "No response from server."
 
         body = resp.text
         _log("parse", f"JSON body: {body[:200]}")
         try:
             data = resp.json()
-        except Exception as e:
-            _log("parse", f"Failed to parse JSON: {e}")
+        except Exception as err:
+            _log("parse", f"Failed to parse JSON: {err}")
             return f"Bad response: {body[:200]}"
 
         if "result" in data:
             parts = data["result"].get("content", [])
-            return "\n".join(p["text"] for p in parts if p.get("type") == "text")
+            return "\n".join(part["text"] for part in parts if part.get("type") == "text")
         if "error" in data:
             return f"Error: {data['error'].get('message', 'unknown')}"
         return "Unexpected response."
 
     def _call(self, tool_name: str, arguments: dict) -> str:
-        arguments = {k: v for k, v in arguments.items() if v is not None}
+        arguments = {key: value for key, value in arguments.items() if value is not None}
         _log("call", f"tool={tool_name} args={arguments}")
         try:
             if not self._session_id:
-                _log("call", "No session — initialising...")
+                _log("call", "No session; initializing...")
                 self._init_session()
 
             _log("call", f"POSTing tools/call for {tool_name}...")
@@ -159,10 +170,25 @@ class Tools:
             result = self._parse(resp)
             _log("call", f"final result: {result[:80]}")
             return result
-        except Exception as e:
-            _log("call", f"EXCEPTION: {e}")
+        except Exception as err:
+            _log("call", f"EXCEPTION: {err}")
             self._session_id = None
-            return f"Error calling {tool_name}: {e}"
+            return f"Error calling {tool_name}: {err}"
+
+    async def _emit_status(
+        self,
+        event_emitter: EventEmitter,
+        description: str,
+        done: bool,
+    ) -> None:
+        if event_emitter:
+            await event_emitter(
+                {"type": "status", "data": {"description": description, "done": done}}
+            )
+
+    async def _emit_message(self, event_emitter: EventEmitter, content: str) -> None:
+        if event_emitter:
+            await event_emitter({"type": "message", "data": {"content": content}})
 
     # ------------------------------------------------------------------ #
     # Tools                                                                #
@@ -177,17 +203,18 @@ class Tools:
         __event_emitter__: EventEmitter = None,
     ) -> str:
         """
-        Extract unique absolute URLs from a website via robots.txt, sitemaps, and page scraping.
-        Falls back to browser rendering (Crawl4AI) when static HTML has no links.
-        :param url: Page or site URL to crawl. Scheme-less input like 'example.com' is allowed.
-        :param same_domain: Only return URLs on the same hostname as the input URL.
-        :param same_path: Only return URLs under the input URL path prefix (e.g. /blog and /blog/...).
-        :param limit: Maximum number of unique URLs to return (1–5000, default 500).
+        Extract unique absolute URLs from robots.txt, sitemaps, and page links.
+        Falls back to Crawl4AI browser rendering when static HTML has no links.
+        :param url: Page or site URL. Scheme-less input like 'example.com' is allowed.
+        :param same_domain: Only return URLs on the input URL hostname.
+        :param same_path: Only return URLs under the input URL path prefix, such as /blogs and /blogs/...
+        :param limit: Maximum number of unique URLs to return. Allowed range is 1 to 5000.
         """
-        _log("extract_urls", f"url={url} same_domain={same_domain} same_path={same_path} limit={limit}")
-
-        if __event_emitter__:
-            await __event_emitter__({"type": "status", "data": {"description": f"Crawling {url}…", "done": False}})
+        _log(
+            "extract_urls",
+            f"url={url} same_domain={same_domain} same_path={same_path} limit={limit}",
+        )
+        await self._emit_status(__event_emitter__, f"Crawling {url}...", False)
 
         result = self._call(
             "extract_urls",
@@ -199,10 +226,35 @@ class Tools:
             },
         )
 
-        if __event_emitter__:
-            await __event_emitter__({"type": "status", "data": {"description": "Done", "done": True}})
-            await __event_emitter__({"type": "message", "data": {"content": f"\n{result}\n"}})
+        await self._emit_status(__event_emitter__, "Done", True)
+        await self._emit_message(__event_emitter__, f"\n{result}\n")
+        return result
 
+    async def extract_content(
+        self,
+        url: str,
+        include_title: bool = True,
+        __event_emitter__: EventEmitter = None,
+    ) -> str:
+        """
+        Extract a page's readable content and return it as Markdown.
+        Falls back to Crawl4AI browser rendering when static HTML yields little content.
+        :param url: Page URL to extract. Scheme-less input like 'example.com' is allowed.
+        :param include_title: Prepend the page title as a top-level Markdown heading.
+        """
+        _log("extract_content", f"url={url} include_title={include_title}")
+        await self._emit_status(__event_emitter__, f"Extracting content from {url}...", False)
+
+        result = self._call(
+            "extract_content",
+            {
+                "url": url,
+                "include_title": include_title,
+            },
+        )
+
+        await self._emit_status(__event_emitter__, "Done", True)
+        await self._emit_message(__event_emitter__, f"\n{result}\n")
         return result
 
     async def extract_image_text(
@@ -214,17 +266,16 @@ class Tools:
         """
         Extract text from an image using Tesseract OCR.
         :param image: Image file path, image URL, data URL, or base64-encoded image content.
-        :param lang: Tesseract language code, e.g. 'eng' or 'eng+hin'. Default is 'eng'.
+        :param lang: Tesseract language code, for example 'eng' or 'eng+hin'. Default is 'eng'.
         """
         _log("extract_image_text", f"image={image[:60]} lang={lang}")
-
-        if __event_emitter__:
-            await __event_emitter__({"type": "status", "data": {"description": "Running OCR…", "done": False}})
+        await self._emit_status(__event_emitter__, "Running OCR...", False)
 
         result = self._call("extract_image_text", {"image": image, "lang": lang})
 
-        if __event_emitter__:
-            await __event_emitter__({"type": "status", "data": {"description": "Done", "done": True}})
-            await __event_emitter__({"type": "message", "data": {"content": f"\n**Extracted text:**\n```\n{result}\n```\n"}})
-
+        await self._emit_status(__event_emitter__, "Done", True)
+        await self._emit_message(
+            __event_emitter__,
+            f"\n**Extracted text:**\n```\n{result}\n```\n",
+        )
         return result
